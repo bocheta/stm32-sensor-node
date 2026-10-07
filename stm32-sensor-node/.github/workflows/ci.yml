@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit-tests:
+    name: Unit tests (host, ASan + UBSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build-host -DCMAKE_BUILD_TYPE=Debug -DENABLE_SANITIZERS=ON
+
+      - name: Build
+        run: cmake --build build-host --parallel
+
+      - name: Test
+        run: ctest --test-dir build-host --output-on-failure
+
+  static-analysis:
+    name: Static analysis (cppcheck)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: sudo apt-get update && sudo apt-get install -y cppcheck
+
+      - name: Run cppcheck
+        run: |
+          cppcheck --enable=warning,style,performance,portability \
+                   --std=c11 --error-exitcode=1 --inline-suppr \
+                   --suppress=missingIncludeSystem \
+                   -I src src firmware/bsp.c
+
+  firmware:
+    name: Firmware build (arm-none-eabi)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ARM toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
+
+      - name: Configure
+        run: >
+          cmake -B build-fw
+          -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-fw --parallel
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: sensor_node-firmware
+          path: |
+            build-fw/firmware/sensor_node.elf
+            build-fw/firmware/sensor_node.bin
+            build-fw/firmware/sensor_node.map
